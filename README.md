@@ -14,6 +14,7 @@ VI 최적 빌드 전략 제안: 분석 결과를 토대로 게임 상황별 VI �
 
 <img width="599" height="430" alt="image" src="https://github.com/user-attachments/assets/74ca8c3c-04b9-4e02-aa49-adbc326a42c4" />
 <img width="599" height="692" alt="image" src="https://github.com/user-attachments/assets/bf069b9d-02e2-4637-b9ed-ee5cd3138c81" />
+
 대시보드는 방어 아이템 선택에 따른 승률 변화와 빌드 트렌드를 인터랙티브하게 탐색 가능합니다.
 
 🛠️ 3. 기술 스택: 분석을 가능하게 한 핵심 도구들

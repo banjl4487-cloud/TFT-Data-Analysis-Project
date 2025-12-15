@@ -1,0 +1,483 @@
+import pandas as pd
+
+import json
+import ast # json.loads 실패 시 문자열 딕셔너리를 파싱하기 위함
+import numpy as np
+# --- 0단계: 모든 데이터 불러오기 (파일 경로 확인) ---
+# 네가 저장한 .csv 파일들의 정확한 경로와 파일명을 입력
+# 예시: 'C:/PythonProject/TFT_Challenger_MatchData.csv'
+file_path_match = 'TFT_Challenger_MatchData.csv'
+file_path_item = 'TFT_Item_Categorized_Version.csv'
+file_path_champion_info = 'TFT_Champion_CurrentVersion.csv' # 이 파일도 '.csv'겠지
+
+
+try:
+    df_match = pd.read_csv(file_path_match)
+    df_item = pd.read_csv(file_path_item)
+    df_champion_info = pd.read_csv(file_path_champion_info)
+    print("✅ 모든 데이터 불러오기 성공!")
+except FileNotFoundError as e:
+    print(f"❌ 오류: 파일 '{e.filename}'을(를) 찾을 수 없습니다. 파일 경로와 이름을 다시 확인해라!")
+    exit() # 파일 없으면 더 진행할 필요 없음
+except Exception as e:
+    print(f"❌ 데이터 불러오기 중 알 수 없는 오류 발생: {e}")
+    exit()
+
+
+
+
+
+#    - 문제 정의: 원본 데이터의 `players` 컬럼은 JSON 문자열 또는 파이썬 리스트/딕셔너리 형태의 문자열로,
+#                 다양한 플레이어와 그들이 보유한 유닛(챔피언) 정보를 중첩된 형태로 담고 있습니다.
+#    - 해결 목표: 이 복잡한 구조에서 각 게임에 사용된 모든 챔피언의 `character_id`(이름)만을 안전하게 추출합니다.
+# ----------------------------------------------------------------------------------------------------
+# --- 챔피언 데이터를 파싱하는 함수 정의 (gameId 포함 최종 클린 버전) ---
+def parse_champions_from_match_data(row: pd.Series) -> list:
+    champions_extracted = []
+
+
+    if 'champion' not in row or not row['champion']:
+        return []
+
+
+    # 데이터를 문자열에서 Python 객체로 파싱 시도
+    parsed_champion_data = None
+    try:
+        parsed_champion_data = json.loads(row['champion'])
+    except (json.JSONDecodeError, TypeError):
+        try:
+            parsed_champion_data = ast.literal_eval(row['champion'])
+        except (ValueError, SyntaxError, TypeError):
+            return []
+
+    if not isinstance(parsed_champion_data, dict):
+        return []
+
+
+    # 현재 row에서 gameId를 추출합니다.
+    # 이 gameId는 df_match DataFrame의 각 행에서 넘어온 것이므로 반드시 존재해야 합니다.
+    current_game_id = row['gameId']
+
+    # 파싱된 데이터(parsed_champion_data)의 키들(챔피언 이름)을 추출합니다.
+    for champion_name in parsed_champion_data.keys():
+        # 추출된 챔피언 이름을 {'champion': '챔피언이름'} 형태로 리스트에 추가합니다.
+        # 여기에 해당 챔피언이 속한 게임의 'gameId'도 함께 추가합니다!
+        champions_extracted.append({'champion': champion_name, 'gameId': current_game_id})
+        # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+
+    return champions_extracted
+
+
+def parse_vi_items(row: pd.Series) -> list:
+    """
+    DataFrame의 단일 행에서 'VI' 챔피언의 아이템 ID를 추출하여 리스트 형태로 반환합니다.
+    'champion' 컬럼은 {'챔피언이름': {'items': [...], 'star': ...}} 형태의 문자열로 가정합니다.
+    Args:
+        row (pd.Series): DataFrame의 단일 행 데이터. 'champion' 및 'gameId' 키를 포함해야 합니다.
+    Returns:
+        list: 해당 행의 'VI' 챔피언이 장착한 아이템 ID와 gameId를 포함하는 딕셔너리 리스트
+              (예: [{'gameId': 'game_abc', 'vi_item_id': 27}])
+              'VI' 챔피언이 없거나 아이템 정보 없음 시 빈 리스트를 반환합니다.
+    """
+    vi_item_ids_list = []
+    TARGET_CHAMPION_NAME = 'VI'  # 찾을 챔피언 이름
+
+    if 'champion' not in row or not row['champion']:
+        return []
+    if 'gameId' not in row:
+        return []
+    current_game_id = row['gameId']
+
+    parsed_champion_data = None
+    try:
+        parsed_champion_data = json.loads(row['champion'])
+    except (json.JSONDecodeError, TypeError):
+        try:
+            parsed_champion_data = ast.literal_eval(row['champion'])
+        except (ValueError, SyntaxError, TypeError):
+            return []
+
+    if not isinstance(parsed_champion_data, dict):
+        return []
+
+    found_vi_in_this_game = False
+    vi_original_name = None
+
+    for champ_key in parsed_champion_data.keys():
+        if champ_key.upper() == TARGET_CHAMPION_NAME:
+            found_vi_in_this_game = True
+            vi_original_name = champ_key
+            break
+
+    if found_vi_in_this_game:
+        vi_champion_detail = parsed_champion_data[vi_original_name]
+        if 'items' in vi_champion_detail and isinstance(vi_champion_detail['items'], list):
+         for item_id in vi_champion_detail['items']:
+                   vi_item_ids_list.append(item_id)
+
+    return vi_item_ids_list
+
+
+# ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+# 2. DataFrame에 파싱 함수 적용 및 df_champions_exploded 생성
+#    df_match DataFrame이 이미 로드되어 있다고 가정합니다.
+
+# df_match 예시 (실제 데이터 로드 코드 필요)
+# df_match = pd.read_csv('your_tft_data.csv')
+
+
+# 모든 매치에 대해 챔피언 파싱 함수 적용
+# 결과는 각 행에 챔피언 딕셔너리 리스트를 담은 Series 형태가 됩니다.
+all_champions_parsed_series = df_match.apply(parse_champions_from_match_data, axis=1)
+
+flattened_champions_dicts = []
+for champion_list_in_row in all_champions_parsed_series.tolist():
+    if champion_list_in_row:
+        flattened_champions_dicts.extend(champion_list_in_row)
+
+# 3) 평탄화된 데이터로 df_champions_exploded를 만듭니다.
+if flattened_champions_dicts:
+    df_champions_exploded = pd.DataFrame(flattened_champions_dicts)
+
+# 4) 그리고 df_champions_exploded를 가지고 필요한 다음 작업을 이어가는 겁니다.
+if 'champion' in df_champions_exploded.columns:
+    df_champions_exploded['champion'] = df_champions_exploded['champion'].str.upper()
+
+# 이어서 --- 3. 'VI' 챔피언의 아이템 정보 추출 및 DataFrame 생성 (df_vi_items) --- 이 진행되는 거잖아!
+
+# Series의 리스트들을 하나의 평평한 리스트로 변환 (Flattening)
+# 이 과정에서 빈 리스트는 제외합니다.
+flattened_champions_list = []
+for sublist in all_champions_parsed_series.tolist(): # <-- 함수를 적용한 결과 변수 이름과 통일!
+    if sublist:
+        flattened_champions_list.extend(sublist)
+
+# 평탄화된 챔피언 리스트를 사용하여 새로운 DataFrame 생성
+# 만약 flattened_champions_list가 비어있다면 빈 DataFrame을 생성하여 NameError 방지
+if flattened_champions_list:
+    df_champions_exploded = pd.DataFrame(flattened_champions_list)
+else:
+    print("경고: 파싱된 챔피언 데이터가 없어 'df_champions_exploded'가 빈 DataFrame으로 생성됩니다.")
+    df_champions_exploded = pd.DataFrame(columns=['champion']) # 최소한의 컬럼은 정의
+
+
+
+
+# ----------------------------------------------------------------------------------------------------
+# 4. [데이터 정제] 챔피언 이름 통일 (대소문자 일치)
+#    - 문제 정의: `df_champions_exploded`의 `champion_name`과 `df_champion_info`의 `name` 컬럼에
+#                 동일 챔피언이라도 대소문자 표기(예: 'Vi' vs 'vi')가 다를 수 있습니다.
+#                 이는 `pd.merge()` 시 데이터 불일치(KeyError 또는 누락)로 이어져 분석 오류를 유발합니다.
+#    - 해결 목표: 두 데이터프레임의 모든 챔피언 이름을 일관된 형태(여기서는 대문자)로 통일하여,
+#                 이후 데이터 병합 및 분석의 정확성을 확보합니다.
+# ----------------------------------------------------------------------------------------------------
+df_champions_exploded['champion'] = df_champions_exploded['champion'].str.upper()  # 모든 챔피언 이름을 대문자로 변환
+df_champion_info['name'] = df_champion_info['name'].str.upper()  # 챔피언 정보 데이터의 이름도 대문자로 변환
+print("✅ 두 데이터프레임(`df_champions_exploded`, `df_champion_info`)의 챔피언 이름이 모두 대문자로 통일되었습니다.")
+print("    - 이제 `pd.merge` 등 챔피언 이름을 기준으로 하는 모든 작업에서 데이터 불일치 문제가 발생하지 않을 것입니다.")
+
+# ----------------------------------------------------------------------------------------------------
+# [다음 단계]
+# 이제 df_champions_exploded와 df_champion_info, df_item 데이터를 활용하여
+# 챔피언과 아이템 정보를 병합하고, 원하는 분석(예: Vi 챔피언의 방어 아이템 착용시 생존 분석)을 진행할 준비가 완료되었습니다.
+# ----------------------------------------------------------------------------------------------------
+
+# ----------------------------------------------------------------------------------------------------
+# 5. [프로젝트 전제 검증] 챌린저 게임에서 가장 많이 등장한 챔피언 확인 (Vi에 집중하는 핵심 동기 재확인)
+#    - [프로젝트 목표 연결]: Vi 챔피언의 생존 시간 분석을 위한 'Vi 선택'의 정당성을 확보합니다.
+#                           Vi가 챌린저 큐에서 실제 가장 많이 활용되는 챔피언 중 하나임을 검증합니다.
+#    - [해결 목표]: `df_champions_exploded` 데이터에서 각 챔피언의 총 등장 횟수를 계산하여 순위를 매기고,
+#                 Vi 챔피언(`VI`)의 등장 횟수와 순위를 '확실하게' 다 확인합니다.
+# ----------------------------------------------------------------------------------------------------
+
+print("\n--- ✅ 챌린저 게임 데이터 내 챔피언 등장 빈도 TOP 10 검증 ---")
+
+# 'champion_name' 컬럼(현재 모두 대문자)의 각 챔피언 등장 횟수를 계산하고 내림차순으로 정렬합니다.
+# 이는 특정 챔피언이 해당 게임 환경에서 얼마나 주력으로 사용되는지 보여주는 핵심 지표입니다.
+most_picked_champions = df_champions_exploded['champion'].value_counts()
+
+# 가장 많이 등장한 상위 10개 챔피언을 출력하여 전체적인 챔피언 활용 분포를 파악합니다.
+print(most_picked_champions.head(10))
+
+# 'VI' 챔피언이 전체 순위에서 몇 위인지, 총 몇 번 등장했는지 '강력하게' 찾아 증명합니다.
+if 'VI' in most_picked_champions.index:  # 'VI'가 챔피언 목록에 있는지 먼저 확인
+    vi_count = most_picked_champions['VI']  # 'VI' 챔피언의 총 등장 횟수
+    # `get_loc()`은 해당 값의 인덱스(0부터 시작)를 반환하므로, 실제 순위를 위해 +1을 합니다.
+    vi_rank = most_picked_champions.index.get_loc('VI') + 1
+
+    print(f"\n👉 'VI' 챔피언 순위: {vi_rank}위, 총 등장 횟수: {vi_count}회")
+    print("    - 위 결과는 'VI' 챔피언이 챌린저 큐에서 높은 활용도를 가짐을 보여주며, ")
+    print("    - 'VI' 챔피언의 생존력 분석에 집중하는 본 프로젝트의 핵심 동기를 뒷받침합니다.")
+else:
+    print("\n👉 'VI' 챔피언은 검증 목록에 없습니다. 프로젝트 전제 재검토 필요!")
+
+# ----------------------------------------------------------------------------------------------------
+# [다음 단계]
+#   - Vi(VI) 챔피언의 높은 활용도 전제가 검증되었으므로, 이제 데이터를 병합하여
+#     Vi의 방어 아이템 착용 여부에 따른 게임 내 '생존 시간(ingameDuration)' 분석을 본격적으로 진행할 준비가 완료되었습니다.
+# ----------------------------------------------------------------------------------------------------
+# ----------------------------------------------------------------------------------------------------
+# 5. [데이터 최적화/필터링] 모든 챔피언 중 'VI' 챔피언 데이터만 초기 단계에서 분리
+#    - [프로젝트 목표 연결]: Vi 챔피언의 생존 시간 분석이라는 명확한 목표에 따라,
+#                           전체 데이터를 모두 병합한 후 Vi를 필터링하는 대신,
+#                           초기 단계에서부터 'VI' 챔피언 데이터에만 집중하여 처리 효율을 극대화합니다.
+#    - [해결 목표]: `df_champions_exploded`에서 'VI' 챔피언에 해당하는 행들만 추출하여,
+#                 이후의 모든 병합 및 분석 과정에서 'VI' 데이터에만 집중할 수 있도록 준비합니다.
+#                 이는 불필요한 데이터 처리량을 줄여 성능을 향상시킵니다.
+# ----------------------------------------------------------------------------------------------------
+print("\n--- ✅ `df_champions_exploded`에서 'VI' 챔피언 데이터만 초기 필터링 시작 ---")
+
+# 'VI' 챔피언 데이터만 추출합니다.
+# 이미 'champion_name' 컬럼이 모두 대문자로 통일되었으므로 'VI'로 정확하게 필터링할 수 있습니다.
+vi_exploded = df_champions_exploded[df_champions_exploded['champion'] == 'VI'].copy()
+
+if vi_exploded.empty:
+    print("❌ 초기 `df_champions_exploded`에서 'VI' 챔피언 데이터를 '초 코딱지만큼도' 찾을 수 없습니다. (프로그램 종료)")
+    print("    - 챔피언 이름 대문자 통일 과정 또는 원본 데이터에 'VI' 챔피언 존재 여부를 재확인해 주세요.")
+    exit() # Vi 데이터가 없으면 이후 분석을 진행할 이유가 없으므로 종료
+
+print(f"✅ 'VI' 챔피언 데이터 {len(vi_exploded)}개 초기 필터링 완료! (vi_exploded 생성)")
+# print(vi_exploded.head())
+
+
+# ----------------------------------------------------------------------------------------------------
+# 6. [데이터 병합 1단계] 'VI' 챔피언 데이터에 해당 게임의 상세 정보 연결
+#    - [프로젝트 목표 연결]: 'VI' 챔피언이 어떤 게임에 속했고, 그 게임이 얼마나 지속되었는지를
+#                           정확히 파악하여 `ingameDuration` 분석의 기반을 마련합니다.
+#    - [해결 목표]: `vi_exploded` (필터링된 'VI' 챔피언 목록)에 `df_match` (게임별 상세 정보)의
+#                 핵심 컬럼을 `gameId`를 기준으로 병합합니다.
+# ----------------------------------------------------------------------------------------------------
+print("\n--- ✅ `vi_exploded`에 매치 정보 병합 시작 ---")
+# df_match에서 필요한 컬럼(gameId, ingameDuration)만 추출하여 메모리 효율성을 높입니다.
+
+df_match_for_merge = df_match[['gameId', 'ingameDuration']].copy()
+vi_merged_with_match = pd.merge(
+    vi_exploded,                 # 왼쪽 데이터프레임: 'VI' 챔피언 정보 (gameId, champion_name)
+    df_match_for_merge,          # 오른쪽 데이터프레임: 게임 상세 정보 (gameId, ingameDuration)
+    on='gameId',                 # 병합 기준 키: 게임 ID
+    how='left'                   # 왼쪽('VI' 챔피언 목록) 기준으로 모든 정보 유지
+)
+print("✅ 'VI' 챔피언 데이터에 매치 정보 병합 완료! (vi_merged_with_match 생성)")
+# print(vi_merged_with_match.head())
+
+
+# ----------------------------------------------------------------------------------------------------
+# 7. [데이터 병합 2단계] 'VI' 챔피언 데이터에 챔피언 상세 정보 연결
+#    - [프로젝트 목표 연결]: 'VI' 챔피언 자체의 속성(`cost`, `origin`, `class`)을 연결하여,
+#                           Vi 챔피언의 특성을 이해하고 추후 필요 시 심층적인 분석 기반을 마련합니다.
+#    - [해결 목표]: `vi_merged_with_match`에 `df_champion_info` (챔피언 상세 정보)를
+#                 챔피언 이름을 기준으로 병합합니다.
+#                 (이번 단계에서는 `df_item`과의 병합이 생략되므로 `suffixes`도 필요 없습니다.)
+# ----------------------------------------------------------------------------------------------------
+print("\n--- ✅ `vi_merged_with_match`에 챔피언 상세 정보 병합 시작 ---")
+# `suffixes`는 두 DataFrame에 같은 이름의 컬럼이 있을 때만 필요합니다.
+# `vi_merged_with_match`에는 'champion_name'만 있고 'name' 컬럼이 없으며,
+# `df_champion_info`에는 'name' 컬럼만 있어 충돌이 발생하지 않습니다.
+final_vi_df_no_items = pd.merge(
+    vi_merged_with_match,        # 왼쪽 데이터프레임: 'VI' 챔피언, 매치 정보 (gameId, ingameDuration, champion_name)
+    df_champion_info,            # 오른쪽 데이터프레임: 챔피언 상세 정보 (name, cost, origin, class 등)
+    left_on='champion',     # 왼쪽 키: 챔피언 이름 (현재 모두 대문자 'VI')
+    right_on='name',             # 오른쪽 키: 챔피언 정보의 이름 (현재 모두 대문자 'VI')
+    how='left'                   # 왼쪽('VI' 챔피언) 기준으로 모든 정보 유지
+)
+print("✅ 'VI' 챔피언만을 위한 최종 데이터프레임 (아이템 제외) `final_vi_df_no_items` 생성 완료!")
+
+# 최종 결과 확인 (옵션)
+# print(final_vi_df_no_items.head())
+# print(final_vi_df_no_items.info())
+
+
+
+
+
+# ----------------------------------------------------------------------------------------------------
+# [최종 준비 완료]
+#   - 이제 `final_vi_df_no_items`는 각 게임에서 등장한 'VI' 챔피언에 대한 게임 ID, `ingameDuration`,
+#     그리고 챔피언 자체의 상세 정보(`cost`, `origin`, `class` 등)가 모두 통합된,
+#     'VI' 챔피언 생존 분석에 최적화된 데이터프레임입니다.
+#   - 이 데이터프레임에는 현재 아이템 정보는 포함되어 있지 않습니다.
+# ----------------------------------------------------------------------------------------------------
+# ----------------------------------------------------------------------------------------------------
+# ----------------------------------------------------------------------------------------------------
+# ----------------------------------------------------------------------------------------------------
+
+# --------------------------------------------------------------------------
+# --- 데이터 로드 및 초기 설정 --
+ACTUAL_ITEM_NAME_COLUMN = 'name'
+
+# --------------------------------------------------------------------------
+# --- 필요한 리스트 및 매핑 동적 생성 ---
+completed_items_list = df_item[
+    df_item['item_type'] == 'completed'
+    ][ACTUAL_ITEM_NAME_COLUMN].tolist()
+
+defensive_completed_items_list = df_item[
+    (df_item['item_type'] == 'completed') &
+    (df_item['is_defensive'] == True)
+    ][ACTUAL_ITEM_NAME_COLUMN].tolist()
+
+item_id_to_name_map = df_item.set_index('id')[ACTUAL_ITEM_NAME_COLUMN].to_dict()
+
+# --------------------------------------------------------------------------
+# --------------------------------------------------------------------------
+# --- VI 아이템 데이터 처리 및 분석 ---
+
+df_match['vi_extracted_item_ids'] = df_match.apply(parse_vi_items, axis=1)
+df_match['vi_extracted_items_data'] = df_match['vi_extracted_item_ids'].apply(
+    lambda ids: [item_id_to_name_map.get(item_id, None) for item_id in ids if
+                 item_id_to_name_map.get(item_id, None) is not None]
+)
+
+df_match['vi_completed_items_only'] = df_match['vi_extracted_items_data'].apply(
+    lambda items: [item for item in items if isinstance(items, list) and item in completed_items_list]
+)
+
+# VI가 완성 아이템을 하나라도 장착한 경기만 필터링
+df_vi_filtered = df_match[df_match['vi_completed_items_only'].apply(len) > 0].copy()
+
+# 모든 완성 아이템 리스트를 하나로 합치고 빈도를 계산
+all_vi_completed_items = [item for sublist in df_vi_filtered['vi_completed_items_only'] if isinstance(sublist, list) for
+                          item in sublist]
+most_common_vi_items_counts = pd.Series(all_vi_completed_items).value_counts()
+
+# 가장 많이 장착된 완성 아이템 확인
+if not most_common_vi_items_counts.empty:
+    top_1_item_name = most_common_vi_items_counts.index[0]
+    top_1_item_count = most_common_vi_items_counts.iloc[0]
+
+    is_top_item_defensive = top_1_item_name in defensive_completed_items_list
+
+    print(f"\n--- [분석 결과] VI가 가장 많이 장착한 완성 아이템 TOP {1} ---")
+    print("-----------------------------------------------------------------")
+    print(f"{'순위':<4} | {'아이템 이름':<25} | {'장착 횟수':<10} | {'방어 아이템 여부':<15}")
+    print("-----------------------------------------------------------------")
+
+    defensive_count = 0
+    non_defensive_count = 0
+
+    top_items_for_summary = most_common_vi_items_counts.head(1)
+
+    for rank, (item_name, count) in enumerate(top_items_for_summary.items()):
+        is_defensive_status_in_loop = item_name in defensive_completed_items_list  # 루프 안에서 사용하는 변수명
+        defensive_status_str = '✅ 방템' if is_defensive_status_in_loop else '❌ 비방템'
+        print(f"{rank + 1:<4} | {item_name:<25} | {count:<10} | {defensive_status_str:<15}")
+
+        if is_defensive_status_in_loop:
+            defensive_count += 1
+        else:
+            non_defensive_count += 1
+    print("-----------------------------------------------------------------")
+
+
+    print("\n--- [추가 분석] VI의 최애 아이템 심층 통찰 ---")
+    if is_top_item_defensive:
+        print(f"  ✨ 가장 많이 장착된 아이템은 '{top_1_item_name}' (총 {top_1_item_count}회) 이며,")
+        print(f"     이는 VI의 '탱커/브루저' 역할에 어울리는 '✅ 방어 아이템'입니다.")
+        print(f"     플레이어들이 VI를 견고한 챔피언으로 활용하는 경향을 보입니다.")
+    else:
+        print(f"  🚨 가장 많이 장착된 아이템은 '{top_1_item_name}' (총 {top_1_item_count}회) 이며,")
+        print(f"     이는 VI의 역할과는 다소 거리가 있는 '❌ 비방어 아이템'입니다.")
+        print(f"     그래서 아이템 TOP1O등 '추가적인 분석'을 통해")
+        print(f"     이 선택이 효과적인 전략인지 탐색해볼 필요가 있습니다.")
+    print("-----------------------------------------------------------------")
+
+    # ⭐ 최종 결과 출력 ⭐
+TOP_N = 10  # 네가 원하는 순위 개수를 여기에 설정!
+
+if not most_common_vi_items_counts.empty:
+    print(f"\n--- [분석 결과] VI가 가장 많이 장착한 완성 아이템 TOP {TOP_N} ---")
+    print("-----------------------------------------------------------------")
+    print(f"{'순위':<4} | {'아이템 이름':<25} | {'장착 횟수':<10} | {'방어 아이템 여부':<15}")
+    print("-----------------------------------------------------------------")
+
+    defensive_count = 0
+    non_defensive_count = 0
+
+    top_items_for_summary = most_common_vi_items_counts.head(TOP_N)  # TOP_N 아이템만 요약용으로 가져옴
+
+    for rank, (item_name, count) in enumerate(top_items_for_summary.items()):
+        is_defensive = item_name in defensive_completed_items_list
+        defensive_status = '✅ 방템' if is_defensive else '❌ 비방템'
+        print(f"{rank + 1:<4} | {item_name:<25} | {count:<10} | {defensive_status:<15}")
+
+        if is_defensive:
+            defensive_count += 1
+        else:
+            non_defensive_count += 1
+    print("-----------------------------------------------------------------")
+
+
+    total_top_n_items = TOP_N
+    if total_top_n_items > 0:
+        defensive_percentage = (defensive_count / total_top_n_items) * 100
+        offensive_percentage = (non_defensive_count / total_top_n_items) * 100
+        print(f"\n[최종 통찰] VI가 가장 많이 장착한 상위 {TOP_N}개 아이템 중:")
+        print(f"  - 방어 아이템 비율: {defensive_percentage:.2f}% ({defensive_count}개)")
+        print(f"  - 비방어 아이템 비율: {offensive_percentage:.2f}% ({non_defensive_count}개)")
+    else:
+        print(f"\n[최종 통찰] 상위 {TOP_N}개 아이템을 분석할 데이터가 없습니다.")
+
+
+
+else:
+    print("\n--- [분석 결과] VI가 장착한 완성 아이템 데이터를 찾을 수 없습니다. ---")
+    print("-" * 50)
+
+data = {
+    '순위': [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+    '아이템 이름': [
+        'Ionic Spark', 'Frozen Heart', 'Redemption', 'Zephyr', 'Thief\'s Gloves',
+        'Force of Nature', 'Locket of the Iron Solari', 'Morellonomicon',
+        'Bramble Vest', 'Dragon\'s Claw'
+    ],
+    '장착 횟수': [5178, 2985, 1893, 1844, 1469, 1157, 880, 849, 721, 644],
+    '방어 아이템 여부': ['비방어아이템', '방어아이템', '방어아이템', '비방어아이템', '비방어아이템',
+                  '비방어아이템', '방어아이템', '비방어아이템', '방어아이템', '비방어아이템']
+}
+
+# 데이터프레임 생성
+df_vi_items = pd.DataFrame(data)
+
+# 방어 아이템 개수와 비율 계산
+total = len(df_vi_items)
+defense_count = sum(df_vi_items['방어 아이템 여부'] == '방어아이템')
+defense_ratio = defense_count / total * 100
+non_defense_count = total - defense_count
+non_defense_ratio = 100 - defense_ratio
+
+# 최종 통찰 데이터를 담을 새로운 데이터프레임 행 생성
+# 기존 df의 컬럼 구조를 따라가되, 빈 값은 NaN으로 채운다.
+summary_rows = pd.DataFrame([
+    {
+        '순위': np.nan, # 순위 컬럼은 비워둠 (NaN)
+        '아이템 이름': "[최종 통찰] VI가 가장 많이 장착한 상위 10개 아이템 중:",
+        '장착 횟수': np.nan,
+        '방어 아이템 여부': np.nan
+    },
+    {
+        '순위': np.nan,
+        '아이템 이름': f"  - 방어 아이템 비율: {defense_ratio:.2f}%",
+        '장착 횟수': f"({defense_count}개)", # 숫자 대신 문자열로 저장하여 포맷 유지
+        '방어 아이템 여부': np.nan
+    },
+    {
+        '순위': np.nan,
+        '아이템 이름': f"  - 비방어 아이템 비율: {non_defense_ratio:.2f}%",
+        '장착 횟수': f"({non_defense_count}개)", # 숫자 대신 문자열로 저장하여 포맷 유지
+        '방어 아이템 여부': np.nan
+    }
+])
+
+# 아이템 데이터프레임과 최종 통찰 데이터프레임을 합치기
+# ignore_index=True로 새롭게 인덱스 재설정
+df_final_output = pd.concat([df_vi_items, summary_rows], ignore_index=True)
+
+# 통합된 데이터프레임을 CSV 파일로 저장
+csv_filename = 'vi_top10_items_with_summary.csv'
+df_final_output.to_csv(csv_filename, index=False, encoding='utf-8-sig')
+
+print(f"모든 데이터와 최종 통찰이 '{csv_filename}'에 성공적으로 저장되었습니다.")
+
+# 화면 출력 (확인용)
+print("\n--- CSV 파일에 저장된 최종 내용 ---")
+print(df_final_output.to_string(index=False)) # 콘솔에서 전체 내용을 확인

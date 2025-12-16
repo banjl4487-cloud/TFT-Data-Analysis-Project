@@ -10,6 +10,7 @@ Kaggle의 LoL 데이터셋에서 VI 챔피언 플레이 데이터를 추출하�
 VI가 사용하는 아이템을 '방어'와 '비방어'로 명확히 분류하고, 시즌별 아이템 메타 트렌드를 파악하여 챔피언 빌드의 핵심 요소들을 식별했습니다.
 방어 아이템과 챔피언 빌드 상관관계 분석 및 전략 제안:
 특정 방어 아이템 착용이 VI 챔피언 빌드 구성과 역할군에 미치는 영향을 데이터로 증명했습니다. 분석 결과를 토대로 게임 상황별 VI 챔피언의 최적 아이템 빌드 가이드라인을 제시하여, 실제 플레이에 적용 가능한 전략적 통찰을 제공합니다.
+
 [핵심 시각화 결과 이미지 첨부 (필수!)] 
 <img width="522" height="357" alt="image" src="https://github.com/user-attachments/assets/5d769db3-5532-46d8-99b1-5eac32f8d100" />
 <img width="522" height="357" alt="image" src="https://github.com/user-attachments/assets/3670e54e-51b8-4e72-8311-792e9c4c328b" />

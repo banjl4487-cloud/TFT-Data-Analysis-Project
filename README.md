@@ -36,8 +36,7 @@ VI가 사용하는 아이템을 '방어'와 '비방어'로 명확히 분류하�
 
 1. 필수 라이브러리 설치:
 pip install pandas numpy matplotlib seaborn
-2. Repository Clone (GitHub 저장소 주소는 본인 것으로 변경!):
-git clone https://github.com/banjl4487-cloud/TFT-Data-Analysis-Project
+2. Repository Clone git clone https://github.com/banjl4487-cloud/TFT-Data-Analysis-Project
 3. 분석 및 시각화 스크립트 실행:
 vi projcet.py 바이 분석 실행
 Vi Item Visualization.py 바이 시각화 실행

@@ -39,6 +39,7 @@ pip install pandas numpy matplotlib seaborn
 2. Repository Clone
 
 git clone https://github.com/banjl4487-cloud/TFT-Data-Analysis-Project
+
 3. 분석 및 시각화 스크립트 파일
 
 vi projcet.py 바이 분석 실행
